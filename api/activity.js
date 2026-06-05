@@ -65,4 +65,73 @@ function normalizeSignIn(sub) {
     datetime: sub.created_at,
     operator:   field(a, 'employee name', 'employeename', 'name') || 'Unknown',
     vehicleId:  field(a, 'vehicle id', 'vehicleid') || '—',
-    vehicleName:field(a, 'vehicle id', 'vehicle
+    vehicleName:field(a, 'vehicle id', 'vehicleid') || '—',
+    plate:      field(a, 'license plate', 'licenseplate', 'plate') || '—',
+    odometerIn: parseInt(field(a, 'odometer reading on return', 'odometer') || 0, 10),
+    damage:        (field(a, 'new damage', 'damage occur') || '').toLowerCase().includes('yes'),
+    damageDetail:  field(a, 'describe the new damage', 'newdamage') || '',
+    damagePhoto:   false,
+    warningLights: (field(a, 'warning lights', 'new dashboard') || '').toLowerCase().includes('yes'),
+    warningDetail: field(a, 'which new warning', 'whichwarning') || '',
+    cleanlinessRating: parseInt(field(a, 'interior cleanliness', 'interior') || 3, 10),
+    exteriorRating:    parseInt(field(a, 'exterior cleanliness', 'exterior') || 3, 10),
+    refueled:     (field(a, 'refuel', 'fuel') || '').toLowerCase().includes('yes'),
+    fuelDetail:   field(a, 'fuel added', 'fueladded', 'gas station') || '',
+    comments:     field(a, 'comments on return', 'comments') || '',
+  };
+}
+
+function normalizeMaintenance(sub) {
+  const a = sub.answers || {};
+  return {
+    id: sub.id,
+    type: 'maintenance',
+    datetime: sub.created_at,
+    operator:      field(a, 'fleet manager name', 'managername', 'name') || 'Fleet Manager',
+    vehicleId:     field(a, 'vehicle id', 'vehicleid') || '—',
+    vehicleName:   field(a, 'vehicle id', 'vehicleid') || '—',
+    plate:         field(a, 'license plate', 'licenseplate', 'plate') || '—',
+    maintenanceType: field(a, 'type of service', 'typeofservice') || '—',
+    workDescription: field(a, 'describe work', 'work performed') || '—',
+    odometerAtService: parseInt(field(a, 'odometer at time', 'odometerat') || 0, 10),
+    serviceVendor: field(a, 'vendor', 'service performed by', 'performedby') || '—',
+    cost:          parseFloat(field(a, 'total cost', 'totalcost') || 0),
+    nextDueMiles:  parseInt(field(a, 'next service due mileage', 'nextduemiles') || 0, 10) || null,
+    nextDueDate:   field(a, 'next service due date', 'nextduedate') || null,
+    inspectionExpiry:   field(a, 'inspection expiry', 'inspectionexpiry') || null,
+    registrationExpiry: field(a, 'registration expiry', 'registrationexpiry') || null,
+    flagImmediate: (field(a, 'flag', 'immediate attention') || '').toLowerCase().includes('yes'),
+    notes:         field(a, 'additional notes', 'notes for fleet', 'items needing') || '',
+  };
+}
+
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+
+  const apiKey = process.env.JOTFORM_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: 'JOTFORM_API_KEY environment variable not set' });
+  }
+
+  try {
+    const [signOutRaw, signInRaw, maintRaw] = await Promise.all([
+      fetchSubmissions(FORM_IDS.signOut,     apiKey),
+      fetchSubmissions(FORM_IDS.signIn,      apiKey),
+      fetchSubmissions(FORM_IDS.maintenance, apiKey),
+    ]);
+
+    const activity = [
+      ...signOutRaw.map(normalizeSignOut),
+      ...signInRaw.map(normalizeSignIn),
+      ...maintRaw.map(normalizeMaintenance),
+    ].sort((a, b) => new Date(b.datetime) - new Date(a.datetime));
+
+    res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=120');
+    return res.status(200).json({ activity, fetchedAt: new Date().toISOString() });
+  } catch (err) {
+    console.error('Activity fetch error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}
