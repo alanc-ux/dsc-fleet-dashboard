@@ -424,15 +424,16 @@ function VehicleDetail({ v, onClose, onSave, onDelete, activity, actLoading, pho
       <div style={{ background:"#fff",borderRadius:16,width:"100%",maxWidth:740,margin:"0 16px",boxShadow:"0 20px 60px rgba(0,0,0,0.3)" }}>
 
         {/* Header with photo */}
-        <div style={{ position:"relative",borderRadius:"16px 16px 0 0",overflow:"hidden" }}>
-          {photoPreview
-            ? <img src={photoPreview} alt={v.name} style={{ width:"100%",height:200,objectFit:"cover",display:"block" }} />
-            : <div style={{ height:8,background:v.color }} />
-          }
-          {/* Overlay gradient for text readability when photo exists */}
-          {photoPreview && <div style={{ position:"absolute",inset:0,background:"linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 60%)" }} />}
-          <button onClick={onClose} style={{ position:"absolute",top:12,right:12,background:"rgba(0,0,0,0.4)",border:"none",borderRadius:"50%",width:32,height:32,color:"#fff",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>×</button>
-          <div style={{ position:"absolute",bottom:0,left:0,right:0,padding:"16px 20px" }}>
+        <div style={{ position:"relative",borderRadius:"16px 16px 0 0",background:v.color }}>
+          {photoPreview && (
+            <div style={{ borderRadius:"16px 16px 0 0",overflow:"hidden" }}>
+              <img src={photoPreview} alt={v.name} style={{ width:"100%",height:200,objectFit:"cover",display:"block" }} />
+              <div style={{ position:"absolute",inset:0,background:"linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 60%)",borderRadius:"16px 16px 0 0" }} />
+            </div>
+          )}
+          {/* Close button — always on top */}
+          <button onClick={onClose} style={{ position:"absolute",top:12,right:12,zIndex:10,background:"rgba(0,0,0,0.45)",border:"2px solid rgba(255,255,255,0.6)",borderRadius:"50%",width:34,height:34,color:"#fff",fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1 }}>×</button>
+          <div style={{ padding: photoPreview ? "0 20px 16px" : "20px 20px 16px", position: photoPreview ? "absolute" : "relative", bottom: photoPreview ? 0 : "auto", left: photoPreview ? 0 : "auto", right: photoPreview ? 0 : "auto" }}>
             <div style={{ color:"rgba(255,255,255,0.75)",fontSize:11,fontWeight:600,letterSpacing:1,textTransform:"uppercase" }}>{v.id} · {v.entity}</div>
             <div style={{ color:"#fff",fontSize:21,fontWeight:700,marginTop:2,textShadow:"0 1px 4px rgba(0,0,0,0.5)" }}>{v.name}</div>
             <div style={{ color:"rgba(255,255,255,0.8)",fontSize:12,marginTop:2 }}>VIN: {v.vin} · Plate: {v.plate}</div>
