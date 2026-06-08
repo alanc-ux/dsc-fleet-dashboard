@@ -1,18 +1,6 @@
-// api/vehicles.js — GET and POST vehicle data to/from Vercel Blob
-import { put, head, getDownloadUrl } from '@vercel/blob';
+import { put } from '@vercel/blob';
 
 const BLOB_KEY = 'dsc-fleet/vehicles.json';
-
-async function getVehicles() {
-  try {
-    // Try to fetch existing blob
-    const res = await fetch(`https://blob.vercel-storage.com/${BLOB_KEY}`, {
-      headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` }
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (_) { return null; }
-}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -21,19 +9,35 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
   if (req.method === 'GET') {
-    const vehicles = await getVehicles();
-    return res.status(200).json({ vehicles });
+    try {
+      const list = await fetch(
+        `https://blob.vercel-storage.com/?prefix=${BLOB_KEY}&limit=1`,
+        { headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` } }
+      );
+      const { blobs } = await list.json();
+      if (!blobs || blobs.length === 0) return res.status(200).json({ vehicles: null });
+      const data = await fetch(blobs[0].url);
+      const vehicles = await data.json();
+      return res.status(200).json({ vehicles });
+    } catch (e) {
+      console.error('GET vehicles error:', e.message);
+      return res.status(200).json({ vehicles: null });
+    }
   }
 
   if (req.method === 'POST') {
-    const { vehicles } = req.body;
-    if (!vehicles) return res.status(400).json({ error: 'Missing vehicles' });
-    const blob = await put(BLOB_KEY, JSON.stringify(vehicles), {
-      access: 'public',
-      addRandomSuffix: false,
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-    });
-    return res.status(200).json({ ok: true, url: blob.url });
+    try {
+      const { vehicles } = req.body;
+      if (!vehicles) return res.status(400).json({ error: 'Missing vehicles' });
+      await put(BLOB_KEY, JSON.stringify(vehicles), {
+        access: 'public',
+        addRandomSuffix: false,
+      });
+      return res.status(200).json({ ok: true });
+    } catch (e) {
+      console.error('POST vehicles error:', e.message);
+      return res.status(500).json({ error: e.message });
+    }
   }
 
   res.status(405).json({ error: 'Method not allowed' });
