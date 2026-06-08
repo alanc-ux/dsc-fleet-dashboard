@@ -802,6 +802,8 @@ export default function App() {
   const [search, setSearch]     = useState("");
   const [sortBy, setSortBy]     = useState("name");
   const [showAdd, setShowAdd]   = useState(false);
+  const [syncing, setSyncing]   = useState(false);
+  const [syncMsg, setSyncMsg]   = useState(null);
 
   // Load all data from Blob on mount
   useEffect(() => {
@@ -854,6 +856,25 @@ export default function App() {
     try { await apiPost('/api/docs', { docs: next }); } catch (e) { console.error('Save docs failed:', e); }
   }
 
+  async function syncForms(vehicleList) {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await apiPost('/api/sync-forms', { vehicles: vehicleList });
+      if (res.ok) {
+        const updated = res.results.filter(r => r.status === 'updated').length;
+        setSyncMsg(`✅ Synced ${updated}/3 forms`);
+      } else {
+        setSyncMsg('⚠️ Sync failed');
+      }
+    } catch (e) {
+      setSyncMsg('⚠️ Sync error');
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setSyncMsg(null), 4000);
+    }
+  }
+
   const { activity, loading: actLoading, error: actError, fetchedAt, refresh } = useActivity(vehicles);
   const alertCount = activity.filter(a=>a.damage||a.warningLights||a.flagImmediate).length;
 
@@ -881,12 +902,14 @@ export default function App() {
     setPhotos(newPhotos); persistPhotos(newPhotos);
     const newDocs = {...docs}; delete newDocs[id];
     setDocs(newDocs); persistDocs(newDocs);
+    syncForms(next);
     setSelected(null);
   }
   function addVehicle(v) {
     const next = [...vehicles, v];
     setVehicles(next);
     persistVehicles(next);
+    syncForms(next);
     setShowAdd(false);
   }
   function handlePhotoChange(vehicleId, base64) {
@@ -922,14 +945,22 @@ export default function App() {
       <div style={{ maxWidth:1100,margin:"0 auto" }}>
 
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20 }}>
-          <div>
-            <div style={{ fontSize:24,fontWeight:800,color:"#0f172a",letterSpacing:"-0.5px" }}>🚗 DSC Fleet Dashboard</div>
-            <div style={{ fontSize:13,color:"#64748b",marginTop:2,display:"flex",alignItems:"center",gap:8 }}>
-              DSC Solutions · Select Building Services · Clean Energy
-              {saving && <span style={{ fontSize:11,color:"#9ca3af" }}>· Saving…</span>}
+          <div style={{ display:"flex",alignItems:"center",gap:16 }}>
+            <img src="data:image/gif;base64,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" alt="DSC Solutions" style={{ height:52,objectFit:"contain" }} />
+            <div>
+              <div style={{ fontSize:13,color:"#64748b",marginTop:2,display:"flex",alignItems:"center",gap:8 }}>
+                Fleet Management
+                {saving && <span style={{ fontSize:11,color:"#9ca3af" }}>· Saving…</span>}
+                {syncMsg && <span style={{ fontSize:11,color:"#15803d",fontWeight:600 }}>{syncMsg}</span>}
+              </div>
             </div>
           </div>
-          <button onClick={()=>setShowAdd(true)} style={{ padding:"9px 18px",background:"#111",color:"#fff",border:"none",borderRadius:9,fontSize:13,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap" }}>+ Add Vehicle</button>
+          <div style={{ display:"flex",gap:8 }}>
+            <button onClick={()=>syncForms(vehicles)} disabled={syncing} style={{ padding:"9px 16px",background:syncing?"#e5e7eb":"#f0fdf4",color:syncing?"#9ca3af":"#15803d",border:"1px solid",borderColor:syncing?"#e5e7eb":"#bbf7d0",borderRadius:9,fontSize:13,fontWeight:600,cursor:syncing?"default":"pointer",whiteSpace:"nowrap" }}>
+              {syncing ? "Syncing…" : "⟳ Sync Forms"}
+            </button>
+            <button onClick={()=>setShowAdd(true)} style={{ padding:"9px 18px",background:"#111",color:"#fff",border:"none",borderRadius:9,fontSize:13,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap" }}>+ Add Vehicle</button>
+          </div>
         </div>
 
         <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:20 }}>
