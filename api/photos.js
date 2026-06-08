@@ -1,6 +1,6 @@
 import { put, list } from '@vercel/blob';
 
-const BLOB_KEY = 'dsc-fleet/photos.json';
+const BLOB_KEY = 'dsc-fleet/vehicles.json';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -16,30 +16,31 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     try {
-      const { blobs } = await list({ prefix: 'dsc-fleet/photos', token });
-      if (!blobs || blobs.length === 0) return res.status(200).json({ photos: {} });
+      const { blobs } = await list({ prefix: 'dsc-fleet/vehicles', token });
+      if (!blobs || blobs.length === 0) return res.status(200).json({ vehicles: null });
       const sorted = blobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
       const data = await fetch(sorted[0].url + '?t=' + Date.now());
-      const photos = await data.json();
-      return res.status(200).json({ photos });
+      const vehicles = await data.json();
+      return res.status(200).json({ vehicles });
     } catch (e) {
-      console.error('GET photos error:', e.message);
-      return res.status(200).json({ photos: {} });
+      console.error('GET vehicles error:', e.message);
+      return res.status(200).json({ vehicles: null });
     }
   }
 
   if (req.method === 'POST') {
     try {
-      const { photos } = req.body;
-      if (photos === undefined) return res.status(400).json({ error: 'Missing photos' });
-      await put(BLOB_KEY, JSON.stringify(photos), {
+      const { vehicles } = req.body;
+      if (!vehicles) return res.status(400).json({ error: 'Missing vehicles' });
+      await put(BLOB_KEY, JSON.stringify(vehicles), {
         access: 'public',
         addRandomSuffix: false,
+        allowOverwrite: true,
         token,
       });
       return res.status(200).json({ ok: true });
     } catch (e) {
-      console.error('POST photos error:', e.message);
+      console.error('POST vehicles error:', e.message);
       return res.status(500).json({ error: e.message });
     }
   }
