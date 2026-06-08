@@ -16,9 +16,10 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     try {
-      const { blobs } = await list({ prefix: BLOB_KEY, limit: 1, token });
+      const { blobs } = await list({ prefix: 'dsc-fleet/vehicles', token });
       if (!blobs || blobs.length === 0) return res.status(200).json({ vehicles: null });
-      const data = await fetch(blobs[0].url);
+      const sorted = blobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+      const data = await fetch(sorted[0].url + '?t=' + Date.now());
       const vehicles = await data.json();
       return res.status(200).json({ vehicles });
     } catch (e) {
@@ -38,7 +39,7 @@ export default async function handler(req, res) {
       });
       return res.status(200).json({ ok: true });
     } catch (e) {
-      console.error('POST vehicles error full:', e.message, e.stack);
+      console.error('POST vehicles error full:', e.message);
       return res.status(500).json({ error: e.message });
     }
   }
