@@ -1,4 +1,4 @@
-import { put } from '@vercel/blob';
+import { put, list } from '@vercel/blob';
 
 const BLOB_KEY = 'dsc-fleet/docs.json';
 
@@ -8,13 +8,12 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return res.status(500).json({ error: 'Blob token not configured' });
+
   if (req.method === 'GET') {
     try {
-      const list = await fetch(
-        `https://blob.vercel-storage.com/?prefix=${BLOB_KEY}&limit=1`,
-        { headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` } }
-      );
-      const { blobs } = await list.json();
+      const { blobs } = await list({ prefix: BLOB_KEY, limit: 1, token });
       if (!blobs || blobs.length === 0) return res.status(200).json({ docs: {} });
       const data = await fetch(blobs[0].url);
       const docs = await data.json();
@@ -32,6 +31,7 @@ export default async function handler(req, res) {
       await put(BLOB_KEY, JSON.stringify(docs), {
         access: 'public',
         addRandomSuffix: false,
+        token,
       });
       return res.status(200).json({ ok: true });
     } catch (e) {
