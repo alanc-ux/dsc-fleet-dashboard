@@ -1,35 +1,8 @@
-// api/sync-forms.js
-// Updates the Vehicle ID dropdown in all 3 Jotform forms
-// whenever vehicles are added or deleted from the dashboard
-
 const FORM_IDS = [
   '261553473034050', // Sign Out
-  '261554150654051', // Sign In  
+  '261554150654051', // Sign In
   '261553782081055', // Maintenance
 ];
-
-const JOTFORM_BASE = 'https://api.jotform.com';
-
-async function getFormQuestions(formId, apiKey) {
-  const res = await fetch(`${JOTFORM_BASE}/form/${formId}/questions?apiKey=${apiKey}`);
-  const json = await res.json();
-  return json.content || {};
-}
-
-async function updateDropdown(formId, questionId, options, apiKey) {
-  const body = new URLSearchParams();
-  options.forEach((opt, i) => {
-    body.append(`question[options]`, opt);
-  });
-  // Jotform API: PUT /form/{id}/question/{qid}
-  const res = await fetch(`${JOTFORM_BASE}/form/${formId}/question/${questionId}?apiKey=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `question[options]=${encodeURIComponent(options.join('|'))}`,
-  });
-  const json = await res.json();
-  return json;
-}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -46,29 +19,58 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing vehicles array' });
   }
 
-  // Build the options list: "VAN01 - 2008 Chevy Floor Van"
-  const options = vehicles.map(v => `${v.id} - ${v.name}`);
-
+  const options = vehicles.map(v => `${v.id} - ${v.name}`).join('|');
   const results = [];
 
   for (const formId of FORM_IDS) {
     try {
-      // Get all questions and find the Vehicle ID dropdown
-      const questions = await getFormQuestions(formId, apiKey);
-      const vehicleQuestion = Object.entries(questions).find(([id, q]) => {
-        const name = (q.name || q.text || '').toLowerCase();
-        return name.includes('vehicle') && (q.type === 'control_dropdown' || q.type === 'control_radio');
+      const qRes = await fetch(
+        `https://api.jotform.com/form/${formId}/questions?apiKey=${apiKey}`
+      );
+      const qJson = await qRes.json();
+      const questions = qJson.content || {};
+
+      // Log all question names so we can see what we're working with
+      const allQuestions = Object.entries(questions).map(([id, q]) => ({
+        id, text: q.text, name: q.name, type: q.type
+      }));
+      console.log(`Form ${formId} questions:`, JSON.stringify(allQuestions));
+
+      // Find Vehicle ID dropdown - match on "Vehicle ID" text exactly
+      const vehicleEntry = Object.entries(questions).find(([, q]) => {
+        const text = (q.text || q.name || '').toLowerCase().trim();
+        return text === 'vehicle id' || text.includes('vehicle id');
       });
 
-      if (!vehicleQuestion) {
-        results.push({ formId, status: 'skipped', reason: 'Vehicle dropdown not found' });
+      if (!vehicleEntry) {
+        results.push({ formId, status: 'skipped', reason: 'Vehicle ID question not found', allQuestions });
         continue;
       }
 
-      const [questionId] = vehicleQuestion;
-      await updateDropdown(formId, questionId, options, apiKey);
-      results.push({ formId, status: 'updated', questionId, optionCount: options.length });
+      const [qid, question] = vehicleEntry;
+      console.log(`Found Vehicle ID question: qid=${qid}, type=${question.type}`);
+
+      const updateRes = await fetch(
+        `https://api.jotform.com/form/${formId}/question/${qid}?apiKey=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `question[options]=${encodeURIComponent(options)}`,
+        }
+      );
+      const updateJson = await updateRes.json();
+      console.log(`Update response for form ${formId}:`, JSON.stringify(updateJson));
+
+      results.push({ 
+        formId, 
+        status: updateJson.responseCode === 200 ? 'updated' : 'error', 
+        qid,
+        count: vehicles.length,
+        response: updateJson.responseCode
+      });
+
     } catch (e) {
+      console.error(`Error for form ${formId}:`, e.message);
       results.push({ formId, status: 'error', error: e.message });
     }
   }
