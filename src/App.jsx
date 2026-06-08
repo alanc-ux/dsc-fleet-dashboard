@@ -10,31 +10,23 @@ const COMPANIES = ["All", "DSC Solutions", "Select Building Services", "Clean En
 const ENTITIES  = ["DSC Solutions", "Select Building Services", "Clean Energy"];
 const TODAY = new Date();
 
-// ── Storage ──────────────────────────────────────────────────────────────────
-const STORAGE_KEY  = "dsc_fleet_vehicles_v1";
-const PHOTOS_KEY   = "dsc_fleet_photos_v1";
-const DOCS_KEY     = "dsc_fleet_docs_v1";
+// ── Storage — Vercel Blob via API routes ─────────────────────────────────────
+// All reads/writes go through /api/vehicles, /api/photos, /api/docs
+// so every device always sees the same data in real time.
 
-function loadVehicles() {
-  try { const r = localStorage.getItem(STORAGE_KEY); if (r) return JSON.parse(r); } catch (_) {}
-  return null;
+async function apiGet(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
+  return res.json();
 }
-function saveVehicles(v) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(v)); } catch (_) {}
-}
-function loadPhotos() {
-  try { const r = localStorage.getItem(PHOTOS_KEY); if (r) return JSON.parse(r); } catch (_) {}
-  return {};
-}
-function savePhotos(p) {
-  try { localStorage.setItem(PHOTOS_KEY, JSON.stringify(p)); } catch (_) {}
-}
-function loadDocs() {
-  try { const r = localStorage.getItem(DOCS_KEY); if (r) return JSON.parse(r); } catch (_) {}
-  return {};
-}
-function saveDocs(d) {
-  try { localStorage.setItem(DOCS_KEY, JSON.stringify(d)); } catch (_) {}
+async function apiPost(path, body) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+  return res.json();
 }
 
 const DOC_TYPES = ["Insurance Card", "Registration", "Inspection Certificate", "Other"];
@@ -799,9 +791,11 @@ function AddVehicleModal({ onClose, onAdd }) {
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [vehicles, setVehicles] = useState(()=>loadVehicles()||DEFAULT_VEHICLES);
-  const [photos, setPhotos]     = useState(()=>loadPhotos());
-  const [docs, setDocs]         = useState(()=>loadDocs());
+  const [vehicles, setVehicles] = useState(DEFAULT_VEHICLES);
+  const [photos, setPhotos]     = useState({});
+  const [docs, setDocs]         = useState({});
+  const [loaded, setLoaded]     = useState(false);
+  const [saving, setSaving]     = useState(false);
   const [selected, setSelected] = useState(null);
   const [mainTab, setMainTab]   = useState("fleet");
   const [company, setCompany]   = useState("All");
@@ -809,37 +803,103 @@ export default function App() {
   const [sortBy, setSortBy]     = useState("name");
   const [showAdd, setShowAdd]   = useState(false);
 
+  // Load all data from Blob on mount
+  useEffect(() => {
+    async function loadAll() {
+      try {
+        const [vRes, pRes, dRes] = await Promise.all([
+          apiGet('/api/vehicles'),
+          apiGet('/api/photos'),
+          apiGet('/api/docs'),
+        ]);
+        if (vRes.vehicles) setVehicles(vRes.vehicles);
+        if (pRes.photos)   setPhotos(pRes.photos);
+        if (dRes.docs)     setDocs(dRes.docs);
+      } catch (e) {
+        console.warn('Could not load from Blob, using defaults:', e.message);
+      } finally {
+        setLoaded(true);
+      }
+    }
+    loadAll();
+  }, []);
+
+  // Poll for updates every 30 seconds so all open devices stay in sync
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setInterval(async () => {
+      try {
+        const [vRes, pRes, dRes] = await Promise.all([
+          apiGet('/api/vehicles'),
+          apiGet('/api/photos'),
+          apiGet('/api/docs'),
+        ]);
+        if (vRes.vehicles) setVehicles(vRes.vehicles);
+        if (pRes.photos)   setPhotos(pRes.photos);
+        if (dRes.docs)     setDocs(dRes.docs);
+      } catch (_) {}
+    }, 30000);
+    return () => clearInterval(t);
+  }, [loaded]);
+
+  async function persistVehicles(next) {
+    setSaving(true);
+    try { await apiPost('/api/vehicles', { vehicles: next }); } catch (e) { console.error('Save vehicles failed:', e); }
+    finally { setSaving(false); }
+  }
+  async function persistPhotos(next) {
+    try { await apiPost('/api/photos', { photos: next }); } catch (e) { console.error('Save photos failed:', e); }
+  }
+  async function persistDocs(next) {
+    try { await apiPost('/api/docs', { docs: next }); } catch (e) { console.error('Save docs failed:', e); }
+  }
+
   const { activity, loading: actLoading, error: actError, fetchedAt, refresh } = useActivity(vehicles);
   const alertCount = activity.filter(a=>a.damage||a.warningLights||a.flagImmediate).length;
 
+  if (!loaded) return (
+    <div style={{ display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"'Segoe UI',system-ui,sans-serif",background:"#f8fafc" }}>
+      <div style={{ textAlign:"center" }}>
+        <div style={{ fontSize:48,marginBottom:16 }}>🚗</div>
+        <div style={{ fontSize:18,fontWeight:700,color:"#0f172a",marginBottom:8 }}>DSC Fleet Dashboard</div>
+        <div style={{ fontSize:13,color:"#64748b" }}>Loading fleet data…</div>
+      </div>
+    </div>
+  );
+
   function saveVehicle(updated) {
     const next = vehicles.map(v=>v.id===updated.id?updated:v);
-    setVehicles(next); saveVehicles(next);
+    setVehicles(next);
+    persistVehicles(next);
     setSelected(updated);
   }
   function deleteVehicle(id) {
     const next = vehicles.filter(v=>v.id!==id);
-    setVehicles(next); saveVehicles(next);
+    setVehicles(next);
+    persistVehicles(next);
     const newPhotos = {...photos}; delete newPhotos[id];
-    setPhotos(newPhotos); savePhotos(newPhotos);
+    setPhotos(newPhotos); persistPhotos(newPhotos);
     const newDocs = {...docs}; delete newDocs[id];
-    setDocs(newDocs); saveDocs(newDocs);
+    setDocs(newDocs); persistDocs(newDocs);
     setSelected(null);
   }
   function addVehicle(v) {
     const next = [...vehicles, v];
-    setVehicles(next); saveVehicles(next);
+    setVehicles(next);
+    persistVehicles(next);
     setShowAdd(false);
   }
   function handlePhotoChange(vehicleId, base64) {
     const newPhotos = {...photos};
     if (base64) newPhotos[vehicleId] = base64;
     else delete newPhotos[vehicleId];
-    setPhotos(newPhotos); savePhotos(newPhotos);
+    setPhotos(newPhotos);
+    persistPhotos(newPhotos);
   }
   function handleDocsChange(vehicleId, updatedDocs) {
     const newDocs = {...docs, [vehicleId]: updatedDocs};
-    setDocs(newDocs); saveDocs(newDocs);
+    setDocs(newDocs);
+    persistDocs(newDocs);
   }
 
   const filtered = vehicles
@@ -864,7 +924,10 @@ export default function App() {
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20 }}>
           <div>
             <div style={{ fontSize:24,fontWeight:800,color:"#0f172a",letterSpacing:"-0.5px" }}>🚗 DSC Fleet Dashboard</div>
-            <div style={{ fontSize:13,color:"#64748b",marginTop:2 }}>DSC Solutions · Select Building Services · Clean Energy</div>
+            <div style={{ fontSize:13,color:"#64748b",marginTop:2,display:"flex",alignItems:"center",gap:8 }}>
+              DSC Solutions · Select Building Services · Clean Energy
+              {saving && <span style={{ fontSize:11,color:"#9ca3af" }}>· Saving…</span>}
+            </div>
           </div>
           <button onClick={()=>setShowAdd(true)} style={{ padding:"9px 18px",background:"#111",color:"#fff",border:"none",borderRadius:9,fontSize:13,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap" }}>+ Add Vehicle</button>
         </div>
