@@ -9,13 +9,17 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
   const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) return res.status(500).json({ error: 'Blob token not configured' });
+  if (!token) {
+    console.error('BLOB_READ_WRITE_TOKEN is not set');
+    return res.status(500).json({ error: 'Blob token not configured' });
+  }
 
   if (req.method === 'GET') {
     try {
-      const { blobs } = await list({ prefix: BLOB_KEY, limit: 1, token });
+      const { blobs } = await list({ prefix: 'dsc-fleet/docs', token });
       if (!blobs || blobs.length === 0) return res.status(200).json({ docs: {} });
-      const data = await fetch(blobs[0].url);
+      const sorted = blobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+      const data = await fetch(sorted[0].url + '?t=' + Date.now());
       const docs = await data.json();
       return res.status(200).json({ docs });
     } catch (e) {
