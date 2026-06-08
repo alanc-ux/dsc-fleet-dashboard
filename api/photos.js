@@ -1,4 +1,3 @@
-// api/photos.js — GET and POST vehicle photos to/from Vercel Blob
 import { put } from '@vercel/blob';
 
 const BLOB_KEY = 'dsc-fleet/photos.json';
@@ -11,24 +10,34 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     try {
-      const r = await fetch(`https://blob.vercel-storage.com/${BLOB_KEY}`, {
-        headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` }
-      });
-      if (!r.ok) return res.status(200).json({ photos: {} });
-      const photos = await r.json();
+      const list = await fetch(
+        `https://blob.vercel-storage.com/?prefix=${BLOB_KEY}&limit=1`,
+        { headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` } }
+      );
+      const { blobs } = await list.json();
+      if (!blobs || blobs.length === 0) return res.status(200).json({ photos: {} });
+      const data = await fetch(blobs[0].url);
+      const photos = await data.json();
       return res.status(200).json({ photos });
-    } catch (_) { return res.status(200).json({ photos: {} }); }
+    } catch (e) {
+      console.error('GET photos error:', e.message);
+      return res.status(200).json({ photos: {} });
+    }
   }
 
   if (req.method === 'POST') {
-    const { photos } = req.body;
-    if (photos === undefined) return res.status(400).json({ error: 'Missing photos' });
-    await put(BLOB_KEY, JSON.stringify(photos), {
-      access: 'public',
-      addRandomSuffix: false,
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-    });
-    return res.status(200).json({ ok: true });
+    try {
+      const { photos } = req.body;
+      if (photos === undefined) return res.status(400).json({ error: 'Missing photos' });
+      await put(BLOB_KEY, JSON.stringify(photos), {
+        access: 'public',
+        addRandomSuffix: false,
+      });
+      return res.status(200).json({ ok: true });
+    } catch (e) {
+      console.error('POST photos error:', e.message);
+      return res.status(500).json({ error: e.message });
+    }
   }
 
   res.status(405).json({ error: 'Method not allowed' });
