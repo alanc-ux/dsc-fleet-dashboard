@@ -1,6 +1,6 @@
-import { put, list } from '@vercel/blob';
+import { kv } from '@vercel/kv';
 
-const BLOB_KEY = 'dsc-fleet/vehicles.json';
+const KEY = 'dsc:vehicles';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -8,20 +8,10 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) {
-    console.error('BLOB_READ_WRITE_TOKEN is not set');
-    return res.status(500).json({ error: 'Blob token not configured' });
-  }
-
   if (req.method === 'GET') {
     try {
-      const { blobs } = await list({ prefix: 'dsc-fleet/vehicles', token });
-      if (!blobs || blobs.length === 0) return res.status(200).json({ vehicles: null });
-      const sorted = blobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
-      const data = await fetch(sorted[0].url + '?t=' + Date.now());
-      const vehicles = await data.json();
-      return res.status(200).json({ vehicles });
+      const vehicles = await kv.get(KEY);
+      return res.status(200).json({ vehicles: vehicles || null });
     } catch (e) {
       console.error('GET vehicles error:', e.message);
       return res.status(200).json({ vehicles: null });
@@ -32,12 +22,7 @@ export default async function handler(req, res) {
     try {
       const { vehicles } = req.body;
       if (!vehicles) return res.status(400).json({ error: 'Missing vehicles' });
-      await put(BLOB_KEY, JSON.stringify(vehicles), {
-        access: 'public',
-        addRandomSuffix: false,
-        allowOverwrite: true,
-        token,
-      });
+      await kv.set(KEY, vehicles);
       return res.status(200).json({ ok: true });
     } catch (e) {
       console.error('POST vehicles error:', e.message);
