@@ -35,11 +35,12 @@ export default async function handler(req, res) {
       await put(BLOB_KEY, JSON.stringify(vehicles), {
         access: 'public',
         addRandomSuffix: false,
+        allowOverwrite: true,
         token,
       });
       return res.status(200).json({ ok: true });
     } catch (e) {
-      console.error('POST vehicles error full:', e.message);
+      console.error('POST vehicles error:', e.message);
       return res.status(500).json({ error: e.message });
     }
   }
