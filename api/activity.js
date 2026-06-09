@@ -9,6 +9,7 @@ const JOTFORM_BASE = 'https://api.jotform.com';
 async function fetchSubmissions(formId, apiKey) {
   const url = `${JOTFORM_BASE}/form/${formId}/submissions?apiKey=${apiKey}&limit=50&orderby=created_at&direction=DESC`;
   const res = await fetch(url);
+  if (res.status === 429) throw new Error('RATE_LIMITED');
   if (!res.ok) throw new Error(`Jotform API error ${res.status} for form ${formId}`);
   const json = await res.json();
   return json.content || [];
@@ -97,22 +98,31 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+
   const apiKey = process.env.JOTFORM_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'JOTFORM_API_KEY not set' });
+
   try {
-    const [signOutRaw, signInRaw, maintRaw] = await Promise.all([
-      fetchSubmissions(FORM_IDS.signOut, apiKey),
-      fetchSubmissions(FORM_IDS.signIn, apiKey),
-      fetchSubmissions(FORM_IDS.maintenance, apiKey),
-    ]);
+    // Fetch forms sequentially to avoid rate limiting
+    const signOutRaw  = await fetchSubmissions(FORM_IDS.signOut, apiKey);
+    const signInRaw   = await fetchSubmissions(FORM_IDS.signIn, apiKey);
+    const maintRaw    = await fetchSubmissions(FORM_IDS.maintenance, apiKey);
+
     const activity = [
       ...signOutRaw.map(normalizeSignOut),
       ...signInRaw.map(normalizeSignIn),
       ...maintRaw.map(normalizeMaintenance),
     ].sort((a, b) => new Date(b.datetime) - new Date(a.datetime));
-    res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=120');
+
+    // Cache for 5 minutes to avoid hitting rate limits
+    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
     return res.status(200).json({ activity, fetchedAt: new Date().toISOString() });
   } catch (err) {
+    if (err.message === 'RATE_LIMITED') {
+      // Return stale-while-revalidate so client uses cached version
+      res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
+      return res.status(200).json({ activity: [], fetchedAt: new Date().toISOString(), rateLimited: true });
+    }
     console.error('Activity fetch error:', err);
     return res.status(500).json({ error: err.message });
   }
