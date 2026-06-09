@@ -154,7 +154,7 @@ function useActivity(vehicles) {
   }, [vehicles]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { const t = setInterval(load, 120000); return () => clearInterval(t); }, [load]);
+  useEffect(() => { const t = setInterval(load, 600000); return () => clearInterval(t); }, [load]);
   return { activity, loading, error, fetchedAt, refresh: load };
 }
 
