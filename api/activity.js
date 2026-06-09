@@ -6,6 +6,8 @@ const FORM_IDS = {
 
 const JOTFORM_BASE = 'https://api.jotform.com';
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 async function fetchSubmissions(formId, apiKey) {
   const url = `${JOTFORM_BASE}/form/${formId}/submissions?apiKey=${apiKey}&limit=50&orderby=created_at&direction=DESC`;
   const res = await fetch(url);
@@ -103,10 +105,12 @@ export default async function handler(req, res) {
   if (!apiKey) return res.status(500).json({ error: 'JOTFORM_API_KEY not set' });
 
   try {
-    // Fetch forms sequentially to avoid rate limiting
-    const signOutRaw  = await fetchSubmissions(FORM_IDS.signOut, apiKey);
-    const signInRaw   = await fetchSubmissions(FORM_IDS.signIn, apiKey);
-    const maintRaw    = await fetchSubmissions(FORM_IDS.maintenance, apiKey);
+    // Sequential fetches with delay to avoid rate limiting
+    const signOutRaw = await fetchSubmissions(FORM_IDS.signOut, apiKey);
+    await sleep(500);
+    const signInRaw = await fetchSubmissions(FORM_IDS.signIn, apiKey);
+    await sleep(500);
+    const maintRaw = await fetchSubmissions(FORM_IDS.maintenance, apiKey);
 
     const activity = [
       ...signOutRaw.map(normalizeSignOut),
@@ -114,14 +118,20 @@ export default async function handler(req, res) {
       ...maintRaw.map(normalizeMaintenance),
     ].sort((a, b) => new Date(b.datetime) - new Date(a.datetime));
 
-    // Cache for 5 minutes to avoid hitting rate limits
-    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
+    // Cache for 10 minutes on Vercel's CDN
+    res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=1200');
     return res.status(200).json({ activity, fetchedAt: new Date().toISOString() });
+
   } catch (err) {
     if (err.message === 'RATE_LIMITED') {
-      // Return stale-while-revalidate so client uses cached version
-      res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
-      return res.status(200).json({ activity: [], fetchedAt: new Date().toISOString(), rateLimited: true });
+      // Don't return empty — tell the client to use stale data
+      res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=1200');
+      return res.status(200).json({ 
+        activity: [], 
+        fetchedAt: new Date().toISOString(), 
+        rateLimited: true,
+        message: 'Jotform rate limit reached — data will refresh shortly'
+      });
     }
     console.error('Activity fetch error:', err);
     return res.status(500).json({ error: err.message });
